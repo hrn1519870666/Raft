@@ -21,9 +21,6 @@
 ### 运行步骤：
 
 ##### 1.编译
-```shell
- cd raft-hrn
-```
 ```go
  go build -o raft.exe
 ```
