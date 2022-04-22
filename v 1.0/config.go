@@ -1,7 +1,7 @@
 /**
   @author: 黄睿楠
   @since: 2022/4/21
-  @desc: 初始化配置信息
+  @desc: 配置信息
 **/
 
 package main
@@ -21,5 +21,5 @@ var heartBeatTimeout = 7
 //心跳检测频率（单位：秒）
 var heartBeatTimes = 3
 
-//用于存储消息
+//模拟数据库，存储消息
 var MessageStore = make(map[int]string)

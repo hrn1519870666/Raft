@@ -1,6 +1,16 @@
 ## Raft分布式共识算法的Go语言实现
 
-### 实现功能：
+### 算法介绍
+
+[论文（中文翻译版）](https://github.com/maemual/raft-zh_cn/blob/master/raft-zh_cn.md)
+
+[动画演示](http://thesecretlivesofdata.com/raft/)
+
+
+
+### V 1.0
+
+#### 实现功能
 
 ##### Leader选举：
 
@@ -18,7 +28,13 @@
 
 
 
-### 运行步骤：
+#### 流程图
+
+![在这里插入图片描述](https://img-blog.csdnimg.cn/4b0896ef8a3b43d8b819ce25f716a793.png)
+
+
+
+#### 运行步骤
 
 ##### 1.编译
 ```go
@@ -30,3 +46,9 @@
 ##### 4.此时打开浏览器用http访问本地节点8080端口，带上节点需要同步打印的消息，比如：
 `http://localhost:8080/req?message=我是hrn`
 三个节点同时打印消息。
+
+
+
+### V 2.0
+
+#### 新增功能
