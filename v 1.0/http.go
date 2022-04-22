@@ -10,6 +10,7 @@ import (
 	"fmt"
 	"github.com/gin-gonic/gin"
 	"log"
+	"net/http"
 	"net/rpc"
 )
 
@@ -21,11 +22,16 @@ func (rf *Raft) httpListen() {
 
 	//http://localhost:8080/req?message=xxx
 	// /req请求路径 映射到匿名函数
-	r.POST("/req",func(c *gin.Context){
-		if len(c.PostForm("message")) > 0 && rf.currentLeader != "-1" {
+	r.GET("/req",func(c *gin.Context){
+
+		c.JSON(http.StatusOK, gin.H{
+			"Status":  "ok",
+		})
+
+		if len(c.Query("message")) > 0 && rf.currentLeader != "-1" {
 
 			// 消息封装
-			message:=c.PostForm("message")
+			message:=c.Query("message")
 			m := new(Message)
 			m.MsgID = getRandom()
 			m.Msg = message
