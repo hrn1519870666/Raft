@@ -9,7 +9,6 @@ package main
 import (
 	"fmt"
 	"log"
-	"math"
 	"net/http"
 	"net/rpc"
 	"time"
@@ -32,11 +31,11 @@ func rpcRegister(raft *Raft) {
 	}
 }
 
+// TODO   第三个参数是一个匿名函数
 func (rf *Raft) broadcast(method string, args interface{}, fun func(ok bool)) {
 
-	// 遍历所有node
+	// 遍历除自己以外的所有node
 	for nodeID, port := range nodeTable {
-		//不用自己给自己广播
 		if nodeID == rf.node.ID {
 			continue
 		}
@@ -48,7 +47,6 @@ func (rf *Raft) broadcast(method string, args interface{}, fun func(ok bool)) {
 		}
 
 		var bo = false
-		// rpc调用以参数形式传入的method方法
 		err = rp.Call(method, args, &bo)
 		if err != nil {
 			fun(false)
@@ -58,59 +56,72 @@ func (rf *Raft) broadcast(method string, args interface{}, fun func(ok bool)) {
 	}
 }
 
-// 以下三个方法，通过rf.broadcast(method string, args interface{}, fun func(ok bool))形式进行调用
-//投票
-func (rf *Raft) Vote(leaderId string, b *bool) error {
+// 以下三个方法在raft.go中，通过broadcast方法调用
+//请求投票RPC
+func (rf *Raft) Vote(node NodeInfo, b *bool) error {
+
+	// 加入了安全性验证，比较Leader和接收者的term
+	// TODO   bug1:在下面的if判断中加入 || node.currentTerm < rf.node.currentTerm 之后，节点就不投票了
 	if rf.votedFor != "-1" || rf.currentLeader != "-1" {
 		*b = false
 	} else {
-		rf.setVotedFor(leaderId)
-		fmt.Printf("投票成功，已投%s节点\n", leaderId)
+		rf.setVoteFor(node.ID)
+		fmt.Printf("投票成功，已投%s节点\n", node.ID)
 		*b = true
 	}
 	return nil
 }
 
-//选举成功后，首次确认领导者
-func (rf *Raft) ConfirmationLeader(node NodeInfo, b *bool) error {
+// 第一次收到Leader的心跳：
+func (rf *Raft) ReceiveFirstHeartbeat(node NodeInfo, b *bool) error {
 	rf.setCurrentLeader(node.ID)
-	*b = true
-	fmt.Println("已发现网络中的领导节点，", node.ID, "成为了领导者！\n")
 	rf.reDefault()
-	return nil
-}
 
-//http.go调用，追随者接收领导者传来的消息，然后存储到消息池中，待领导者确认后打印
-func (rf *Raft) ReceiveMessage(message Message, b *bool) error {
-	fmt.Printf("接收到领导者节点发来的信息，消息id为：%d\n", message.MsgID)
-	MessageStore[message.MsgID] = message.Msg
+	fmt.Println("已发现网络中的领导节点，", node.ID, "成为了领导者！\n")
 	*b = true
-	fmt.Println("已回复接收到消息，待领导者确认后打印")
 	return nil
 }
 
-// 日志复制
-// http.go调用，领导者收到了追随者节点转发过来的消息
-func (rf *Raft) LeaderReceiveMessage(entries []Log, b *bool) error {
-	fmt.Printf("领导者节点接收到转发过来的消息")
-	rf.log=append(rf.log,entries...)
+// 之后收到Leader的心跳：
+func (rf *Raft) ReceiveHeartbeat(node NodeInfo, b *bool) error {
+	rf.setCurrentLeader(node.ID)
+	rf.lastHeartBeatTime = millisecond()
+
+	fmt.Printf("接收到来自领导节点%s的心跳检测\n", node.ID)
+	fmt.Printf("当前时间为:%d\n\n", millisecond())
+	*b = true
+	return nil
+}
+
+
+
+// Leader节点的日志复制
+// http.go调用，领导者收到了追随者节点转发过来的消息，然后广播到全网
+func (rf *Raft) BroadcastMessage(message Message, b *bool) error {
+	fmt.Printf("领导者节点接收到客户端的消息\n")
+
+	// 设置日志任期为当前Leader节点的任期
+	//TODO   bug2:rf.node.currentTerm不为0，但message.MsgTerm始终为0
+	message.setMsgTerm(rf.node.currentTerm)
+	fmt.Printf("消息索引为: %d , Leader收到该消息时的任期为: %d , 消息内容为 %s\n",message.MsgID,rf.node.currentTerm,message.Msg)
+	rf.MessageStore[message.MsgID] = message
 	*b = true
 	fmt.Println("准备将消息进行广播...")
 	num := 0
-	go rf.broadcast("Raft.AppendEntries", entries, func(ok bool) {
+	go rf.broadcast("Raft.ReceiveMessage", message, func(ok bool) {
 		if ok {
 			num++
 		}
 	})
 
 	for {
-		//自己默认收到了消息，所以减去一
+		//自己默认收到了消息，所以减1
 		if num > raftCount/2-1 {
-			fmt.Printf("全网已超过半数节点接收到消息，raft验证通过，可以打印消息")
-			fmt.Println("消息为：")
+			fmt.Printf("全网已超过半数节点接收到消息\nraft验证通过，可以打印消息\n")
+			fmt.Printf("消息索引为: %d , 消息内容为 %s\n",message.MsgID,message.Msg)
 			rf.lastMessageTime = millisecond()
-			fmt.Println("准备将消息提交信息发送至客户端...")
-			go rf.broadcast("Raft.ConfirmationMessage", entries, func(ok bool) {
+			fmt.Println("通知客户端：消息提交成功")
+			go rf.broadcast("Raft.ConfirmationMessage", message, func(ok bool) {
 			})
 			break
 		} else {
@@ -121,14 +132,45 @@ func (rf *Raft) LeaderReceiveMessage(entries []Log, b *bool) error {
 	return nil
 }
 
-// rpc.go LeaderReceiveMessage调用
+//rpc.go BroadcastMessage方法调用，追随者接收消息，然后存储到数据库中，待领导者确认后打印
+func (rf *Raft) ReceiveMessage(message Message, b *bool) error {
+	fmt.Printf("接收到领导者节点发来的信息\n")
+	fmt.Printf("消息索引为: %d , 消息内容为 %s\n",message.MsgID,message.Msg)
+
+	/*
+	// TODO   bug3:由于bug2无法setMsgTerm，导致下面的安全性验证也无法进行
+	//进行安全性验证
+	// 比较Leader和接收者的term
+	if message.LeaderTerm >= rf.node.currentTerm {
+		// 比较日志索引，如果接收者的最后一条日志的索引 = 新日志索引 - 1，则继续比较日志任期
+		_,ok1 := rf.MessageStore[message.MsgID-1]
+		// 比较日志任期
+		ok2 := rf.MessageStore[message.MsgID-1].MsgTerm == message.MsgTerm
+		if ok1 && ok2 {
+			rf.MessageStore[message.MsgID] = message
+			*b = true
+			fmt.Println("已回复接收到消息，待领导者确认后打印")
+		}
+	} else {
+		fmt.Println("安全性验证失败,拒绝接收消息")
+		// TODO 安全性验证失败的操作:将接收者日志同步成Leader的日志
+	}
+	*/
+
+	rf.MessageStore[message.MsgID] = message
+	*b = true
+	fmt.Println("已回复接收到消息，待领导者确认后打印")
+	return nil
+
+}
+
+// rpc.go BroadcastMessage调用
 //追随者节点的反馈得到领导者节点的确认，开始打印消息
 func (rf *Raft) ConfirmationMessage(message Message, b *bool) error {
-	go func() {
 		for {
-			if _, ok := MessageStore[message.MsgID]; ok {
-				fmt.Printf("raft验证通过，可以打印消息，消息id为：%d\n", message.MsgID)
-				fmt.Println("消息为：", MessageStore[message.MsgID], "\n")
+			if _, ok := rf.MessageStore[message.MsgID]; ok {
+				fmt.Printf("raft验证通过，可以打印消息\n")
+				fmt.Printf("消息索引为: %d , 消息内容为 %s\n\n",message.MsgID,message.Msg)
 				rf.lastMessageTime = millisecond()
 				break
 			} else {
@@ -137,62 +179,6 @@ func (rf *Raft) ConfirmationMessage(message Message, b *bool) error {
 			}
 
 		}
-	}()
 	*b = true
 	return nil
 }
-
-
-// 日志复制
-func (rf *Raft) AppendEntries (term,prevLogIndex,prevLogTerm,leaderCommit int,entries []Log,leaderId string) (int,bool) {
-	fmt.Println("准备将消息进行广播...")
-
-	if term < rf.currentTerm {
-		return rf.currentTerm,false
-	}
-
-	for index, value := range rf.log {
-		if prevLogIndex == value.index && prevLogTerm == value.term {
-			for i:=0;i<=index;i++ {
-				//如果一个已经存在的条目和新条目发生了冲突（因为索引相同，任期不同）
-				if rf.log[i].term != term {
-					//那么就删除这个已经存在的条目以及它之后的所有条目
-					rf.log=append(rf.log[:i])
-				}
-			}
-
-			//追加日志中尚未存在的任何新条目
-			rf.log=append(rf.log,entries...)
-
-			//如果领导人的已知已提交的最高日志条目的索引大于接收者的已知已提交最高日志条目的索引（leaderCommit > commitIndex）
-			//则把接收者的已知已经提交的最高的日志条目的索引commitIndex 重置为
-			//领导人的已知已经提交的最高的日志条目的索引 leaderCommit 或者是 上一个新条目的索引 取两者的最小值
-			if leaderCommit > rf.commitIndex {
-				rf.commitIndex = int(math.Min(float64(leaderCommit),float64(len(rf.log)-1)))
-			}
-			rf.setCurrentLeader(leaderId)
-			rf.lastHeartBeartTime = millisecond()
-			fmt.Printf("接收到来自领导节点%s的心跳检测\n", leaderId)
-			fmt.Printf("当前时间为:%d\n\n", millisecond())
-			return rf.currentTerm,true
-		}
-	}
-	return rf.currentTerm,false
-}
-
-//请求投票
-func (rf *Raft) RequestVote (term,lastLogIndex,lastLogTerm int,candidateId string) (int,bool) {
-
-	//如果term < currentTerm返回 false
-	if term < rf.currentTerm {
-		return rf.currentTerm,false
-	}
-
-	//如果 votedFor 为空或者为 candidateId，并且候选人的日志至少和自己一样新，那么就投票给他
-	if (rf.votedFor == "" || rf.votedFor == candidateId) && rf.log[len(rf.log)-1].index <= lastLogIndex && rf.log[len(rf.log)-1].term <= lastLogTerm{
-		rf.votedFor=candidateId
-		return rf.currentTerm,true
-	}
-	return rf.currentTerm,false
-}
-
