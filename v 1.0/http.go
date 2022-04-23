@@ -41,19 +41,19 @@ func (rf *Raft) httpListen() {
 			// Leader节点的端口号
 			port := nodeTable[rf.currentLeader]
 
-			//客户端用rpc.DialHTTP和RPC服务器进行一个链接(协议必须匹配).
+			//客户端用rpc.DialHTTP和RPC服务器进行一个链接(协议必须匹配)
 			client, err := rpc.DialHTTP("tcp", "127.0.0.1"+port)
 			if err != nil {
 				log.Panic(err)
 			}
 			b := false
 
-			//通过client对象进行远程函数调用. 函数名由 client.Call 第一个参数指定(字符串类型)
-			err = client.Call("Raft.LeaderReceiveMessage", m, &b)
+			//通过client对象进行远程函数调用
+			err = client.Call("Raft.BroadcastMessage", m, &b)
 			if err != nil {
 				log.Panic(err)
 			}
-			fmt.Println("消息是否已发送到领导者：", b)
+			fmt.Println("消息是否转发到领导者：", b)
 		}
 	})
 	// 监听localhost:8080

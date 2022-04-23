@@ -12,14 +12,11 @@ var raftCount = 3
 //节点集   key:节点编号  value:端口号
 var nodeTable map[string]string
 
-//选举超时时间（单位：秒）
-var timeout = 3
-
 //心跳检测超时时间
 var heartBeatTimeout = 7
 
 //心跳检测频率（单位：秒）
 var heartBeatTimes = 3
 
-//模拟数据库，存储消息
-var MessageStore = make(map[int]string)
+//选举超时时间（单位：秒），从一个跟随者变成候选人开始计时，经过选举超时时间后，如果没有成为领导者，则结束选举过程，将自己变回跟随者
+var timeout = 3

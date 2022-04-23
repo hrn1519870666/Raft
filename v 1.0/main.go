@@ -22,7 +22,7 @@ func main() {
 		"C": ":9002",
 	}
 
-	//运行程序时，指定节点编号:raft.exe B   os.Args[0]是raft.exe
+	//运行程序时，指定节点编号:raft.exe A/B/C   os.Args[0]是raft.exe
 	if len(os.Args) < 1 {
 		log.Fatal("程序参数不正确")
 	}
@@ -33,8 +33,8 @@ func main() {
 	raft := NewRaft(id, nodeTable[id])
 
 	// rpc服务注册
-	go rpcRegister(raft)   // go关键字：并行执行
-	//发送心跳,只有当前节点为Leader节点时，才会收到通道开启的信息,向其他节点发送心跳
+	go rpcRegister(raft)
+	//发送心跳,只有当前节点为Leader节点时，才会开启心跳通道,向其他节点发送心跳
 	go raft.heartbeat()
 	//开启Http监听，这里设置A节点监听来自8080端口的请求
 	if id == "A" {
@@ -46,15 +46,15 @@ func main() {
 
 	//进行超时选举
 	for {
-		// 5000毫秒，即0.5秒检测一次
+		// 0.5秒检测一次
 		time.Sleep(time.Millisecond * 5000)
-		if raft.lastHeartBeartTime != 0 && (millisecond()-raft.lastHeartBeartTime) > int64(raft.timeout*1000) {
-			fmt.Printf("心跳检测超时，已超过%d秒\n", raft.timeout)
+		if raft.lastHeartBeatTime != 0 && (millisecond()-raft.lastHeartBeatTime) > int64(heartBeatTimeout*1000) {
+			fmt.Printf("心跳检测超时")
 			fmt.Println("即将重新开启选举")
 
 			raft.reDefault()
 			raft.setCurrentLeader("-1")
-			raft.lastHeartBeartTime = 0
+			raft.lastHeartBeatTime = 0
 
 			go raft.startElection()
 		}
