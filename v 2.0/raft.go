@@ -1,6 +1,6 @@
 /**
   @author: 黄睿楠
-  @since: 2022/4/21
+  @since: 2022/4/23
   @desc: Raft节点类
 **/
 
